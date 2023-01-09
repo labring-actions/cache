@@ -1,0 +1,38 @@
+jobs:
+  CHANGELOG:
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: download CHANGELOG
+        id: set-kube
+        run: bash .github/scripts/kube.CHANGELOG
+    outputs:
+      matrix: ${{ steps.set-kube.outputs.matrix }}
+  caching:
+    needs:
+      - CHANGELOG
+    runs-on: ubuntu-20.04
+    strategy:
+      matrix: ${{ fromJson(needs.CHANGELOG.outputs.matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Login to registry Hub
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.G_REGISTRY_TOKEN }}
+      - name: push to registry Hub
+        env:
+          ARCH: ${{ matrix.arch }}
+          K8S_MD: CHANGELOG-${{ matrix.kube }}
+          REGISTRY: ghcr.io
+          REPOSITORY: ${{ github.repository }}
+        run: bash .github/scripts/kube.sh
+name: kube
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
