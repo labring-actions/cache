@@ -49,7 +49,7 @@ kube_upgrade() {
   pushd "$(mktemp -d)" >/dev/null || exit
   mkdir -p "images/shim" "bin"
   # cache binary
-  for binary in kubectl kubelet kubeadm; do until curl -sLo "bin/$binary" "https://storage.googleapis.com/kubernetes-release/release/$vKUBE/bin/linux/$ARCH/$binary"; do sleep 3; done; done
+  for binary in kubectl kubelet kubeadm; do until curl -sLo "bin/$binary" "https://dl.k8s.io/release/$vKUBE/bin/linux/$ARCH/$binary"; do sleep 3; done; done
   find . -type f -exec file {} \; | grep -E "(executable,|/ld-)" | awk -F: '{print $1}' | grep -vE "\.so" | while IFS='' read -r elf; do sudo chmod a+x "$elf" && binary_verify "$elf"; done
   # cache image
   cat <<EOF >"Kubefile"
@@ -58,7 +58,7 @@ EOF
   if [[ amd64 == "$ARCH" ]]; then
     cp -a bin/kubeadm .
   else
-    until curl -sLo kubeadm "https://storage.googleapis.com/kubernetes-release/release/$vKUBE/bin/linux/amd64/kubeadm"; do sleep 3; done
+    until curl -sLo kubeadm "https://dl.k8s.io/release/$vKUBE/bin/linux/amd64/kubeadm"; do sleep 3; done
     chmod a+x kubeadm
   fi
   binary_verify ./kubeadm

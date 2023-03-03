@@ -32,7 +32,7 @@ for name in ${!REPOS[*]}; do
 done
 
 CONTAINERD=$(git ls-remote --refs --sort="-version:refname" --tags "https://github.com/${REPOS[CONTAINERD]}.git" | cut -d/ -f3- | grep -E "^v1.7[0-9.]+$" | head -n 1 | cut -dv -f2)
-DOCKER=$(git ls-remote --refs --sort="-version:refname" --tags "https://github.com/${REPOS[DOCKER]}.git" | cut -d/ -f3- | grep -E "^v25[0-9.]+$" | head -n 1 | cut -dv -f2)
+DOCKER=$(git ls-remote --refs --sort="-version:refname" --tags "https://github.com/${REPOS[DOCKER]}.git" | cut -d/ -f3- | grep -E "^v27[0-9.]+$" | head -n 1 | cut -dv -f2)
 
 get_pkg() {
   local target=${1?Please input target} filename=${1##*/} obj_path crun_tag
