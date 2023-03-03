@@ -1,10 +1,20 @@
 #!/bin/bash
 
-case $(arch) in
+BUILDARCH=$(arch)
+case $BUILDARCH in
+aarch64)
+  readonly BUILDARCH=arm64
+  ;;
 x86_64)
-  sudo docker run --rm -v "/usr/bin:/pwd" -w /tools --entrypoint /bin/sh "$REGISTRY/$REPOSITORY:tools-amd64" -c "cp -au . /pwd" &>/dev/null || true
+  readonly BUILDARCH=amd64
+  ;;
+*)
+  echo "Unsupported $BUILDARCH"
+  exit
   ;;
 esac
+
+sudo docker run --rm -v "/usr/bin:/pwd" -w /tools --entrypoint /bin/sh "$REGISTRY/$REPOSITORY:tools-$BUILDARCH" -c "cp -au . /pwd" &>/dev/null || true
 
 binary_verify() {
   local binary=$1
