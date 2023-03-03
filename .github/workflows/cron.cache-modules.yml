@@ -1,0 +1,37 @@
+env:
+  CONTEXT: modules
+  REGISTRY: ghcr.io
+  REPOSITORY: ${{ github.repository }}
+  REPOSITORY_OWNER: ${{ github.repository_owner }}
+  REPOSITORY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+jobs:
+  module:
+    needs:
+      - versions
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - env:
+          MODULE: ${{ matrix.module }}
+          VERSION: ${{ matrix.version }}
+        name: build
+        run: bash modules/build.sh
+    strategy:
+      matrix: ${{ fromJson(needs.versions.outputs.matrix) }}
+  versions:
+    outputs:
+      matrix: ${{ steps.versions.outputs.matrix }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - id: versions
+        name: versions
+        run: |
+          bash modules/versions.sh
+          yq -CP versions
+          echo "matrix=$(yq -oj versions | jq -rc)" >>$GITHUB_OUTPUT
+name: cache-modules
+on:
+  workflow_dispatch:

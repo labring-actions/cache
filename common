@@ -1,0 +1,66 @@
+#!/bin/bash
+
+BUILDARCH=$(arch)
+case $BUILDARCH in
+aarch64)
+  readonly BUILDARCH=arm64
+  ;;
+x86_64)
+  readonly BUILDARCH=amd64
+  ;;
+*)
+  echo "Unsupported $BUILDARCH"
+  exit
+  ;;
+esac
+
+sudo docker run --rm -v "/usr/bin:/pwd" -w /tools --entrypoint /bin/sh "$REGISTRY/$REPOSITORY:tools-$BUILDARCH" -c "cp -au . /pwd" &>/dev/null || true
+
+binary_verify() {
+  local binary=$1
+  if [[ amd64 == "$ARCH" ]]; then
+    echo "$binary"
+    case $binary in
+    */kubectl)
+      $binary version --client 2>/dev/null
+      ;;
+    *)
+      $binary --version 2>/dev/null ||
+        $binary version 2>/dev/null ||
+        $binary -v 2>/dev/null ||
+        $binary -V 2>/dev/null ||
+        file "$binary" | grep ASCII | awk -F: '{print $1}' | xargs rm -v ||
+        file "$binary"
+      ;;
+    esac
+    echo
+  else
+    file "$binary"
+  fi
+}
+
+checker_image() {
+  local checker_build=${1:-$checker_build}
+  local checker_tag=${checker_build##*/}
+  if [[ -d "$checker_build" ]] && [[ amd64 == "$ARCH" ]]; then
+    pushd "$(mktemp -d)" >/dev/null || exit
+    cp -a "$checker_build" .
+    cat <<EOF >"/tmp/$checker_tag.Dockerfile"
+FROM alpine:3
+COPY . /tmp
+EOF
+    docker buildx build \
+      --platform "linux/$ARCH" \
+      --label "org.opencontainers.image.source=https://github.com/$REPOSITORY" \
+      --label "org.opencontainers.image.description=$checker_tag container image" \
+      --label "org.opencontainers.image.licenses=MIT" \
+      -t "$REGISTRY/$REPOSITORY:$checker_tag" \
+      -f "/tmp/$checker_tag.Dockerfile" \
+      . 2>/dev/null
+    popd >/dev/null || exit
+  else
+    docker run --rm -v "$checker_build:/checker" -w "$checker_build" --entrypoint /bin/sh "$REGISTRY/$REPOSITORY:$checker_tag" -c "cp -auv . /checker" || mkdir -p "$checker_build"
+    docker rmi --force "$REGISTRY/$REPOSITORY:$checker_tag"
+    sudo chown -R "$(whoami)" "$checker_build"
+  fi
+}

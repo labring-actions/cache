@@ -1,0 +1,28 @@
+jobs:
+  caching:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Login to registry Hub
+        uses: docker/login-action@v2
+        with:
+          password: ${{ secrets.GITHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+      - env:
+          ARCH: ${{ matrix.arch }}
+          REGISTRY: ghcr.io
+          REPOSITORY: ${{ github.repository }}
+        name: push to registry Hub
+        run: bash .github/scripts/tools
+    strategy:
+      matrix:
+        arch:
+          - amd64
+          - arm64
+name: tools
+on:
+  schedule:
+    - cron: "* */8 * * *"
+  workflow_dispatch:

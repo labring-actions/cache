@@ -1,0 +1,214 @@
+#!/bin/bash
+
+set -e
+
+checker_build="/tmp/checker.$(basename "$0")-${K8S_MD##*-}"
+(
+  until curl -sL "https://github.com/kubernetes/kubernetes/raw/master/CHANGELOG/$K8S_MD"; do sleep 3; done >"/tmp/$K8S_MD"
+  grep -E '^- \[v[0-9\.]+\]' "/tmp/$K8S_MD" | awk -F] '{print $1}' | awk -F[ '{print $NF}' >"/tmp/$K8S_MD.versions"
+)
+source common
+checker_image
+
+align_kube() {
+  local binary=$1 tags_url
+  local alignKUBE=$2
+  case $binary in
+  cri-tools)
+    tags_url="https://github.com/kubernetes-sigs/cri-tools.git"
+    ;;
+  cri-o)
+    tags_url="https://github.com/cri-o/cri-o.git"
+    ;;
+  esac
+  [[ -s "$binary.tags" ]] || until git ls-remote --refs --sort="-version:refname" --tags "$tags_url" | cut -d/ -f3- | grep -E "^v[0-9.]+$"; do sleep 3; done >"$binary.tags"
+  if grep "^$alignKUBE" "$binary.tags" >/dev/null; then
+    grep "^$alignKUBE" "$binary.tags" | head -n 1
+  else
+    head -n 1 "$binary.tags"
+  fi
+}
+
+get_asset() {
+  local binary=$1 asset_url=https://github.com asset_match
+  local version=$2
+  case $binary in
+  cri-o)
+    asset_url="https://github.com/$binary/$binary/releases/tag/$version"
+    asset_match="$binary.$ARCH"
+    ;;
+  esac
+  until curl -sL "$asset_url"; do sleep 3; done | grep 'href="http.://' | sed 's/ /\n/g' | grep 'href="http.://' | awk -F\" '{print $2}' |
+    grep ".tar.gz$" | sort | uniq | grep "$asset_match" || get_asset "$binary" "${version%.*}.$((${version##*.} - 1))"
+}
+
+kube_upgrade() {
+  local vKUBE=$1
+  docker pull "$REGISTRY/$REPOSITORY:kubernetes-$vKUBE-$ARCH" &>/dev/null && return
+  local image_tag="kubernetes-$vKUBE-$ARCH"
+  pushd "$(mktemp -d)" >/dev/null || exit
+  mkdir -p "images/shim" "bin"
+  # cache binary
+  for binary in kubectl kubelet kubeadm; do until curl -sLo "bin/$binary" "https://dl.k8s.io/release/$vKUBE/bin/linux/$ARCH/$binary"; do sleep 3; done; done
+  find . -type f -exec file {} \; | grep -E "(executable,|/ld-)" | awk -F: '{print $1}' | grep -vE "\.so" | while IFS='' read -r elf; do sudo chmod a+x "$elf" && binary_verify "$elf"; done
+  # cache image
+  cat <<EOF >"Kubefile"
+FROM scratch
+EOF
+  if [[ amd64 == "$ARCH" ]]; then
+    cp -a bin/kubeadm .
+  else
+    until curl -sLo kubeadm "https://dl.k8s.io/release/$vKUBE/bin/linux/amd64/kubeadm"; do sleep 3; done
+    chmod a+x kubeadm
+  fi
+  binary_verify ./kubeadm
+  ./kubeadm config images list --kubernetes-version "$vKUBE" >"images/shim/DefaultImageList"
+
+  sealos version &>/dev/null || (
+    sealos_tag="sealos-$(
+      until git ls-remote --refs --sort="-version:refname" --tags "https://github.com/labring/sealos.git" | cut -d/ -f3- | grep -E "^v4[0-9.]+$"; do sleep 3; done | head -n 1
+    )-amd64"
+    until sudo docker run --rm -v "/usr/bin:/pwd" -w /sealos --entrypoint /bin/sh "$REGISTRY/$REPOSITORY:$sealos_tag" -c "cp -au sealos /pwd"; do sleep 5; done
+  )
+  sudo sealos build -t "kubernetes:$image_tag" --platform "linux/$ARCH" .
+  # cache(binary+image)
+  sudo chown -R "$(whoami)" .
+  cat <<EOF >"/tmp/$image_tag"
+FROM scratch
+COPY bin /bin
+COPY images /images
+COPY registry /registry
+EOF
+  tree -L 5
+  docker buildx build \
+    --platform "linux/$ARCH" \
+    --label "org.opencontainers.image.source=https://github.com/$REPOSITORY" \
+    --label "org.opencontainers.image.description=kubernetes-$vKUBE container image" \
+    --label "org.opencontainers.image.licenses=MIT" \
+    -t "$REGISTRY/$REPOSITORY:$image_tag" \
+    -f "/tmp/$image_tag" \
+    .
+  popd >/dev/null
+}
+
+cri_upgrade() {
+  local CRICTL=$1 CRIO=$2 crun_tag
+  local alignKUBE=$3
+  local image_tag="cri-$alignKUBE-$ARCH"
+  pushd "$(mktemp -d)" >/dev/null || exit
+  until curl -sLo "crictl.tar.gz" "https://github.com/kubernetes-sigs/cri-tools/releases/download/$CRICTL/crictl-$CRICTL-linux-$ARCH.tar.gz"; do sleep 3; done
+  if ! file crictl.tar.gz | grep compressed >/dev/null; then
+    rm crictl.tar.gz
+  fi
+  until curl -sLo "cri-o.tar.gz" "$(get_asset cri-o "$CRIO")"; do sleep 3; done
+  if ! file cri-o.tar.gz | grep compressed >/dev/null; then
+    until curl -sLo "cri-o.tar.gz" "https://github.com/cri-o/cri-o/releases/download/$CRIO/cri-o.$ARCH.$CRIO.tar.gz"; do sleep 3; done
+    if ! file cri-o.tar.gz | grep compressed >/dev/null; then
+      rm cri-o.tar.gz
+    fi
+  fi
+  if file cri-o.tar.gz | grep compressed >/dev/null; then
+    tar -xzf cri-o.tar.gz
+    pushd cri-o >/dev/null || exit
+    crun_tag="$(until curl -sL "https://api.github.com/repos/containers/crun/releases/latest"; do sleep 3; done | grep tarball_url | awk -F\" '{print $(NF-1)}' | awk -F/ '{print $NF}' | cut -dv -f2)"
+    until curl -sLo "bin/crun" "https://github.com/containers/crun/releases/download/$crun_tag/crun-$crun_tag-linux-$ARCH"; do sleep 3; done
+    until docker run --rm -v "$PWD/bin:/pwd" -w /runtime --entrypoint /bin/sh "$REGISTRY/$REPOSITORY:runtime" -c "cp -a runc.$ARCH /pwd/runc"; do sleep 5; done
+    if [[ -s install ]]; then
+      echo -n "cri-o($CRIO)install: "
+      head -n 1 install
+      sed -i '1c#!/bin/bash' install
+    fi
+    grep cniVersion -r | grep cniVersion | awk -F: '{print $1}' | while read -r cni_conf; do
+      rm -fv "$cni_conf"
+      grep "$cni_conf" -r | awk -F: '{print $1}' | xargs sed -i "/${cni_conf##*/}/d"
+    done
+    sudo make 2>&1 | sed 's/-t/;/g' | grep \; | awk -F\; '{print $NF}' >install.log
+    while IFS= read -r crio_line; do
+      crio_dt=$(echo "$crio_line" | awk '{print $1}')
+      crio_st=$(echo "$crio_line" | sed -E "s~$crio_dt~~")
+      echo "mkdir -p $crio_dt && cp -au $crio_st $crio_dt"
+    done <install.log | sort | uniq | grep -E '[a-z]$' >install.crio
+    while IFS= read -r crio_line; do
+      crio_dt=$(echo "$crio_line" | awk '{print $1}')
+      echo "$crio_line" | sed -E "s~$crio_dt~~;s~ [a-z-]+/~ ~g;s~ ~\n$crio_dt/~g"
+    done <install.log | sort | uniq | grep -E '[a-z]$' >crio.files
+    popd >/dev/null || exit
+    cp cri-o/*crio* .
+    sudo chown -hR 0:0 cri-o
+    find cri-o -type f -exec file {} \; | grep -E "(executable,|/ld-)" | awk -F: '{print $1}' | grep -vE "\.so" | while IFS='' read -r elf; do sudo chmod a+x "$elf" && binary_verify "$elf"; done
+    tar -czf cri-o.tar.gz cri-o
+    tree cri-o
+    sudo rm -rf cri-o
+  fi
+  find . -type f -exec file {} \; | grep -E "(executable,|/ld-)" | awk -F: '{print $1}' | grep -vE "\.so" | while IFS='' read -r elf; do sudo chmod a+x "$elf" && binary_verify "$elf"; done
+  cat <<EOF >"/tmp/$image_tag"
+FROM alpine:3
+COPY . /cri
+EOF
+  tree -L 5
+  docker buildx build \
+    --platform "linux/$ARCH" \
+    --label "org.opencontainers.image.source=https://github.com/$REPOSITORY" \
+    --label "org.opencontainers.image.description=crictl-$CRICTL$([[ -s crictl.tar.gz ]] || echo miss),crio-$CRIO$([[ -s cri-o.tar.gz ]] || echo miss) container image" \
+    --label "org.opencontainers.image.licenses=MIT" \
+    -t "$REGISTRY/$REPOSITORY:$image_tag" \
+    -f "/tmp/$image_tag" \
+    .
+  popd >/dev/null
+}
+
+cri_released() {
+  local alignKUBE=v${1%.*} CRICTL CRIO
+  local image_tag="cri-$alignKUBE-$ARCH"
+  CRICTL=$(align_kube cri-tools "$alignKUBE")
+  CRIO=$(align_kube cri-o "$alignKUBE")
+  pushd "$(mktemp -d)" >/dev/null || exit
+  cat <<EOF | sort >.versions
+crictl-$CRICTL
+crio-$CRIO
+EOF
+  if ! diff .versions "$checker_build/${image_tag%-*}"; then
+    date >>"/tmp/.${checker_build//\//_}"
+    cp -a .versions "$checker_build/${image_tag%-*}"
+    cri_upgrade "$CRICTL" "$CRIO" "$alignKUBE"
+  fi
+  popd >/dev/null
+}
+
+kube_released() {
+  local image_tag="kubernetes-$ARCH" vKUBE
+  pushd "$(mktemp -d)" >/dev/null || exit
+  if [[ -s "/tmp/$K8S_MD.versions" ]]; then
+    cri_released "${K8S_MD##*-}"
+    if ! diff "/tmp/$K8S_MD.versions" "$checker_build/${image_tag%-*}"; then
+      while read -r vKUBE; do
+        if ! grep "$vKUBE" "$checker_build/${image_tag%-*}" &>/dev/null; then
+          date >>"/tmp/.${checker_build//\//_}"
+          kube_upgrade "$vKUBE"
+        fi
+      done <"/tmp/$K8S_MD.versions"
+    else
+      if [[ true == "$PULL_IMAGE" ]]; then
+        while read -r vKUBE; do
+          if ! docker pull "$REGISTRY/$REPOSITORY:kubernetes-$vKUBE-$ARCH" &>/dev/null; then
+            date >>"/tmp/.${checker_build//\//_}"
+            kube_upgrade "$vKUBE"
+          fi
+        done <"/tmp/$K8S_MD.versions"
+      fi
+    fi
+    cp -a "/tmp/$K8S_MD.versions" "$checker_build/${image_tag%-*}"
+    cp -a "/tmp/$K8S_MD" "$checker_build"
+  else
+    # unstable for CHANGELOG-v1.xx.md
+    grep -E '^- \[v.+\]' "/tmp/$K8S_MD" | awk -F] '{print $1}' | awk -F[ '{print $NF}'
+  fi
+  popd >/dev/null
+}
+
+kube_released
+
+if [[ -s "/tmp/.${checker_build//\//_}" ]]; then checker_image; fi
+if docker images "$REGISTRY/$REPOSITORY" | grep "$REGISTRY/$REPOSITORY"; then until docker push "$REGISTRY/$REPOSITORY" --all-tags; do sleep 3; done; fi
+
+rm -rf /tmp/tmp.*

@@ -1,0 +1,10 @@
+https://github.com/Mirantis/cri-dockerd/releases/download/v0.3.17/cri-dockerd-0.3.17.amd64.tgz
+https://github.com/containerd/containerd/releases/download/v1.7.27/containerd-static-1.7.27-linux-amd64.tar.gz
+https://github.com/containers/crun/releases/download/1.21/crun-1.21-linux-amd64
+https://github.com/cri-o/cri-o/releases/download/v1.20.9/cri-o.amd64.v1.20.9.tar.gz
+https://github.com/distribution/distribution/releases/download/v2.8.3/registry_2.8.3_linux_amd64.tar.gz
+https://github.com/kubernetes-sigs/cri-tools/releases/download/v1.22.1/crictl-v1.22.1-linux-amd64.tar.gz
+https://github.com/kubernetes/kubernetes/archive/refs/tags/v1.26.15.tar.gz
+https://github.com/labring/sealos/releases/download/v4.3.7/sealos_4.3.7_linux_amd64.tar.gz
+https://github.com/moby/moby/archive/refs/tags/v25.0.8.tar.gz
+https://github.com/opencontainers/runc/releases/download/v1.1.15/runc.amd64
