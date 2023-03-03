@@ -1,0 +1,67 @@
+#!/bin/bash
+case $ARCH in
+amd64)
+  ALIAS_ARCH=x86_64
+  ;;
+arm64)
+  ALIAS_ARCH=aarch64
+  ;;
+esac
+
+set -e
+
+checker_build="/tmp/checker.$(basename "$0")"
+source common
+checker_image
+
+readonly -A REPOS=(
+  [HELM]=helm/helm
+  [YQ]=mikefarah/yq
+  [UPX]=upx/upx
+  [SHELLCHECK]=koalaman/shellcheck
+)
+for name in ${!REPOS[*]}; do
+  export "$name"="$(
+    for tag in $(git ls-remote --refs --sort="-version:refname" --tags "https://github.com/${REPOS[$name]}.git" | cut -d/ -f3- | grep -E "^v[0-9.]+$" | head -n 3); do
+      if curl -sL "https://github.com/${REPOS[$name]}/releases/tag/$tag" | grep '="repo_releases"' >/dev/null; then
+        cut -dv -f2 <<<"$tag"
+        break
+      fi
+    done
+  )"
+done
+
+image_tag="tools-$ARCH"
+pushd "$(mktemp -d)" >/dev/null
+for name in ${!REPOS[*]}; do echo "echo $name=v\$$name >>/tmp/$image_tag"; done | bash
+sort "/tmp/$image_tag" >.versions
+if ! diff .versions "$checker_build/${image_tag%-*}"; then
+  date >>"/tmp/.${checker_build//\//_}"
+  cp -a .versions "$checker_build/${image_tag%-*}"
+  until curl -sL "https://get.helm.sh/helm-v$HELM-linux-$ARCH.tar.gz" | tar -xz "linux-$ARCH/helm" --strip-components=1; do sleep 3; done
+  until curl -sLo yq "https://github.com/mikefarah/yq/releases/download/v$YQ/yq_linux_$ARCH"; do sleep 3; done
+  until curl -sL "https://github.com/upx/upx/releases/download/v$UPX/upx-$UPX-${ARCH}_linux.tar.xz" | tar -xJ "upx-$UPX-${ARCH}_linux/upx" --strip-components=1; do sleep 3; done
+  until curl -sL "https://github.com/koalaman/shellcheck/releases/download/v$SHELLCHECK/shellcheck-v$SHELLCHECK.linux.$ALIAS_ARCH.tar.xz" | tar xJ "shellcheck-v$SHELLCHECK/shellcheck" --strip-components=1; do sleep 3; done
+  find . -type f -exec file {} \; | grep -E "(executable,|/ld-)" | awk -F: '{print $1}' | grep -vE "\.so" | while IFS='' read -r elf; do sudo chmod a+x "$elf" && binary_verify "$elf"; done
+  cat <<EOF >"/tmp/$image_tag"
+FROM muicoder/containers:buildah AS buildah
+FROM alpine:3
+COPY --from=buildah /usr/local/sbin /tools
+COPY . /tools
+EOF
+  tree -L 5
+  docker buildx build \
+    --platform "linux/$ARCH" \
+    --label "org.opencontainers.image.source=https://github.com/$REPOSITORY" \
+    --label "org.opencontainers.image.description=helm-v$HELM,yq-v$YQ,upx-v$UPX container image" \
+    --label "org.opencontainers.image.licenses=MIT" \
+    -t "$REGISTRY/$REPOSITORY:$image_tag" \
+    -f "/tmp/$image_tag" \
+    .
+fi
+popd >/dev/null
+
+if [[ -s "/tmp/.${checker_build//\//_}" ]]; then checker_image; fi
+if docker images "$REGISTRY/$REPOSITORY" | grep "$REGISTRY/$REPOSITORY"; then until docker push "$REGISTRY/$REPOSITORY" --all-tags; do sleep 3; done; fi
+
+rm -rf /tmp/tmp.*
