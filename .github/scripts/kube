@@ -39,7 +39,7 @@ get_asset() {
     ;;
   esac
   until curl -sL "$asset_url"; do sleep 3; done | grep 'href="http.://' | sed 's/ /\n/g' | grep 'href="http.://' | awk -F\" '{print $2}' |
-    grep ".tar.gz$" | sort | uniq | grep "$asset_match" || echo "$asset_url"
+    grep ".tar.gz$" | sort | uniq | grep "$asset_match" || get_asset "$binary" "${version%.*}.$((${version##*.} - 1))"
 }
 
 kube_upgrade() {
