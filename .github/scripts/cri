@@ -31,9 +31,6 @@ for name in ${!REPOS[*]}; do
   )"
 done
 
-CONTAINERD=$(git ls-remote --refs --sort="-version:refname" --tags "https://github.com/${REPOS[CONTAINERD]}.git" | cut -d/ -f3- | grep -E "^v1.6[0-9.]+$" | head -n 1 | cut -dv -f2)
-DOCKER=$(git ls-remote --refs --sort="-version:refname" --tags "https://github.com/${REPOS[DOCKER]}.git" | cut -d/ -f3- | grep -E "^v23[0-9.]+$" | head -n 1 | cut -dv -f2)
-
 get_pkg() {
   local target=${1?Please input target} filename=${1##*/} obj_path
   pushd "$(mktemp -d)" >/dev/null || exit
@@ -81,8 +78,8 @@ if ! diff .versions "$checker_build/${image_tag%-*}"; then
   # kube 1.16(docker-18.09)
   # kube 1.17-20(docker-19.03)
   # kube 1.21-23(docker-20.10)
-  for major in 18 19 20 23 24; do
-    for tag in $(git ls-remote --refs --sort="-version:refname" --tags "https://github.com/${REPOS[DOCKER]}.git" | cut -d/ -f3- | grep -E "^v$major[0-9.]+$" | head -n 3 | cut -dv -f2); do
+  for major in 18 19 20 23 24 25; do
+    for tag in $(git ls-remote --refs --sort="-version:refname" --tags "https://github.com/${REPOS[DOCKER]}.git" | cut -d/ -f3- | grep -E "^v$major[0-9.]+$" | head -n 9 | cut -dv -f2); do
       until curl -sLo "docker-${tag%.*}.tgz" "https://download.docker.com/linux/static/stable/$ALIAS_ARCH/docker-$tag.tgz"; do sleep 3; done
       if file "docker-${tag%.*}.tgz" | grep compressed >/dev/null; then
         echo "docker-$tag.tgz -> docker-${tag%.*}.tgz"
