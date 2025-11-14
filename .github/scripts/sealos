@@ -10,24 +10,17 @@ is_released() {
   local image_tag="sealos-$ARCH"
   pushd "$(mktemp -d)" >/dev/null || exit
   until git ls-remote --refs --sort="-version:refname" --tags "https://github.com/labring/sealos.git" | cut -d/ -f3- | grep -E "^v[4-9].+" | grep -vE "^v4.[0-1]"; do sleep 3; done >.versions
-  if ! diff .versions "$checker_build/${image_tag%-*}" &>/dev/null; then
-    while read -r vSEALOS; do
-      if ! grep "^$vSEALOS$" "$checker_build/${image_tag%-*}" &>/dev/null && curl -sL "https://github.com/labring/sealos/releases/tag/$vSEALOS" | grep '="repo_releases"' >/dev/null; then
-        date >>"/tmp/.${checker_build//\//_}"
-        echo "$vSEALOS"
-      fi
-    done <.versions | sort
-  else
-    if [[ true == "$PULL_IMAGE" ]]; then
-      while read -r vSEALOS; do
-        if ! docker pull "$REGISTRY/$REPOSITORY:sealos-$vSEALOS-$ARCH" &>/dev/null; then
-          date >>"/tmp/.${checker_build//\//_}"
-          echo "$vSEALOS"
-        fi
-      done <.versions | sort
+
+  echo "获取所有 sealos 正式发布版本..."
+  while read -r vSEALOS; do
+    # 检查是否为正式发布版本（排除 rc、beta、alpha 等预发布版本）
+    if [[ "$vSEALOS" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] && curl -sL "https://github.com/labring/sealos/releases/tag/$vSEALOS" | grep '="repo_releases"' >/dev/null; then
+      echo "发现正式版本: $vSEALOS"
+      echo "$vSEALOS"
+    else
+      echo "跳过非正式版本: $vSEALOS"
     fi
-  fi
-  cp -a .versions "$checker_build/${image_tag%-*}"
+  done <.versions | sort
   popd >/dev/null
 }
 
@@ -41,8 +34,11 @@ FROM alpine:3
 ADD . /sealos
 EOF
   tree -L 5
+  # 构建镜像：禁用缓存并直接推送
   docker buildx build \
     --platform "linux/$ARCH" \
+    --no-cache \
+    --push \
     --label "org.opencontainers.image.source=https://github.com/$REPOSITORY" \
     --label "org.opencontainers.image.description=sealos-$vSEALOS container image" \
     --label "org.opencontainers.image.licenses=MIT" \
@@ -52,6 +48,5 @@ EOF
   popd >/dev/null
 done
 
-if docker images "$REGISTRY/$REPOSITORY" | grep "$REGISTRY/$REPOSITORY"; then until docker push "$REGISTRY/$REPOSITORY" --all-tags; do sleep 3; done; fi
-
+# 清理临时文件
 rm -rf /tmp/tmp.*

@@ -12,7 +12,6 @@ jobs:
           username: ${{ github.repository_owner }}
       - env:
           ARCH: ${{ matrix.arch }}
-          PULL_IMAGE: ${{ secrets.PULL_IMAGE }}
           REGISTRY: ghcr.io
           REPOSITORY: ${{ github.repository }}
         name: push to registry Hub
