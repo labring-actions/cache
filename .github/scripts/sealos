@@ -19,12 +19,6 @@ is_released() {
     elif [[ "$vSEALOS" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-[Rr][Cc][0-9]*$ ]] || [[ "$vSEALOS" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-[Rr][Cc]\.[0-9]+$ ]]; then
       # RC版本
       echo "$vSEALOS"
-    elif [[ "$vSEALOS" =~ [Bb][Ee][Tt][Aa] ]]; then
-      echo "跳过 Beta 版本: $vSEALOS"
-    elif [[ "$vSEALOS" =~ [Aa][Ll][Pp][Hh][Aa] ]]; then
-      echo "跳过 Alpha 版本: $vSEALOS"
-    else
-      echo "跳过其他预发布版本: $vSEALOS"
     fi
   done <.versions | sort
   popd >/dev/null
