@@ -9,12 +9,22 @@ checker_image
 is_released() {
   local image_tag="sealos-$ARCH"
   pushd "$(mktemp -d)" >/dev/null || exit
-  until git ls-remote --refs --sort="-version:refname" --tags "https://github.com/labring/sealos.git" | cut -d/ -f3- | grep -E "^v[4-9].+" | grep -vE "^v4.[0-1]"; do sleep 3; done >.versions
+  until git ls-remote --refs --sort="-version:refname" --tags "https://github.com/labring/sealos.git" | cut -d/ -f3- | grep -E "^v[5-9].+"; do sleep 3; done >.versions
 
   while read -r vSEALOS; do
-    # 检查是否为正式发布版本（排除 rc、beta、alpha 等预发布版本）
+    # 保留正式版本和RC版本，排除其他预发布版本
     if [[ "$vSEALOS" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] && curl -sL "https://github.com/labring/sealos/releases/tag/$vSEALOS" | grep '="repo_releases"' >/dev/null; then
+      # 正式发布版本
       echo "$vSEALOS"
+    elif [[ "$vSEALOS" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-[Rr][Cc][0-9]*$ ]] || [[ "$vSEALOS" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-[Rr][Cc]\.[0-9]+$ ]]; then
+      # RC版本
+      echo "$vSEALOS"
+    elif [[ "$vSEALOS" =~ [Bb][Ee][Tt][Aa] ]]; then
+      echo "跳过 Beta 版本: $vSEALOS"
+    elif [[ "$vSEALOS" =~ [Aa][Ll][Pp][Hh][Aa] ]]; then
+      echo "跳过 Alpha 版本: $vSEALOS"
+    else
+      echo "跳过其他预发布版本: $vSEALOS"
     fi
   done <.versions | sort
   popd >/dev/null
