@@ -52,7 +52,6 @@ EOF
   popd >/dev/null
 done
 
-if [[ -s "/tmp/.${checker_build//\//_}" ]]; then checker_image; fi
 if docker images "$REGISTRY/$REPOSITORY" | grep "$REGISTRY/$REPOSITORY"; then until docker push "$REGISTRY/$REPOSITORY" --all-tags; do sleep 3; done; fi
 
 rm -rf /tmp/tmp.*
