@@ -44,7 +44,7 @@ if ! diff .versions "$checker_build/${image_tag%-*}"; then
   until curl -sL "https://github.com/koalaman/shellcheck/releases/download/v$SHELLCHECK/shellcheck-v$SHELLCHECK.linux.$ALIAS_ARCH.tar.xz" | tar xJ "shellcheck-v$SHELLCHECK/shellcheck" --strip-components=1; do sleep 3; done
   find . -type f -exec file {} \; | grep -E "(executable,|/ld-)" | awk -F: '{print $1}' | grep -vE "\.so" | while IFS='' read -r elf; do sudo chmod a+x "$elf" && binary_verify "$elf"; done
   cat <<EOF >"/tmp/$image_tag"
-FROM muicoder/containers:buildah AS buildah
+FROM muicoder/containers:buildah-v1.41.5 AS buildah
 FROM alpine:3
 COPY --from=buildah /usr/local/sbin /tools
 COPY . /tools
