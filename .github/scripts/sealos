@@ -11,14 +11,10 @@ is_released() {
   pushd "$(mktemp -d)" >/dev/null || exit
   until git ls-remote --refs --sort="-version:refname" --tags "https://github.com/labring/sealos.git" | cut -d/ -f3- | grep -E "^v[4-9].+" | grep -vE "^v4.[0-1]"; do sleep 3; done >.versions
 
-  echo "获取所有 sealos 正式发布版本..."
   while read -r vSEALOS; do
     # 检查是否为正式发布版本（排除 rc、beta、alpha 等预发布版本）
     if [[ "$vSEALOS" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] && curl -sL "https://github.com/labring/sealos/releases/tag/$vSEALOS" | grep '="repo_releases"' >/dev/null; then
-      echo "发现正式版本: $vSEALOS"
       echo "$vSEALOS"
-    else
-      echo "跳过非正式版本: $vSEALOS"
     fi
   done <.versions | sort
   popd >/dev/null
