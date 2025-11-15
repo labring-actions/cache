@@ -72,16 +72,16 @@ done | grep -v ^# | awk -F/ '{printf("%s/%s\n"),$4,$5}' |
       multi_versions "$repo"
       ;;
     containerd)
-      multi_versions "$repo" "1.[8-9]"
+      multi_versions "$repo" "1.[8-9]|2.[0-9]"
       ;;
     cri-o)
       multi_versions "$repo" "1.[2-9][0-9]"
       ;;
     cri-tools)
-      multi_versions "$repo" "1.(1[8-9]|[2-9][0-9])"
+      multi_versions "$repo" "1.[2-9][0-9]"
       ;;
     kubernetes)
-      multi_versions "$repo" "1.(1[8-9]|[2-9][0-9])"
+      multi_versions "$repo" "1.([2-9][0-9])"
       ;;
     *)
       version="$(
