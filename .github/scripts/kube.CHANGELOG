@@ -6,7 +6,7 @@ while IFS= read -r K8S_MD; do
   awk '{printf "{\"'kube'\":\"%s\",\"'arch'\":\"amd64\"},{\"'kube'\":\"%s\",\"'arch'\":\"arm64\"},",$1,$1}' <<<"${K8S_MD##*-}" >>CHANGELOG.md
 done < <(
   until curl -sL https://github.com/kubernetes/kubernetes/raw/master/CHANGELOG/README.md; do sleep 3; done |
-    grep -E "^- \[CHANGELOG-1\.(19|[2-9][0-9])\.md" |
+    grep -E "^- \[CHANGELOG-1\.([2-9][0-9])\.md" |
     awk -F] '{print $1}' | awk -F[ '{print $NF}'
 )
 
