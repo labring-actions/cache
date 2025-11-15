@@ -80,8 +80,11 @@ COPY images /images
 COPY registry /registry
 EOF
   tree -L 5
+  # 构建镜像：禁用缓存并直接推送
   docker buildx build \
     --platform "linux/$ARCH" \
+    --no-cache \
+    --push \
     --label "org.opencontainers.image.source=https://github.com/$REPOSITORY" \
     --label "org.opencontainers.image.description=kubernetes-$vKUBE container image" \
     --label "org.opencontainers.image.licenses=MIT" \
@@ -146,8 +149,11 @@ FROM alpine:3
 COPY . /cri
 EOF
   tree -L 5
+  # 构建镜像：禁用缓存并直接推送
   docker buildx build \
     --platform "linux/$ARCH" \
+    --no-cache \
+    --push \
     --label "org.opencontainers.image.source=https://github.com/$REPOSITORY" \
     --label "org.opencontainers.image.description=crictl-$CRICTL$([[ -s crictl.tar.gz ]] || echo miss),crio-$CRIO$([[ -s cri-o.tar.gz ]] || echo miss) container image" \
     --label "org.opencontainers.image.licenses=MIT" \
@@ -162,17 +168,7 @@ cri_released() {
   local image_tag="cri-$alignKUBE-$ARCH"
   CRICTL=$(align_kube cri-tools "$alignKUBE")
   CRIO=$(align_kube cri-o "$alignKUBE")
-  pushd "$(mktemp -d)" >/dev/null || exit
-  cat <<EOF | sort >.versions
-crictl-$CRICTL
-crio-$CRIO
-EOF
-  if ! diff .versions "$checker_build/${image_tag%-*}"; then
-    date >>"/tmp/.${checker_build//\//_}"
-    cp -a .versions "$checker_build/${image_tag%-*}"
-    cri_upgrade "$CRICTL" "$CRIO" "$alignKUBE"
-  fi
-  popd >/dev/null
+  cri_upgrade "$CRICTL" "$CRIO" "$alignKUBE"
 }
 
 kube_released() {
@@ -180,25 +176,9 @@ kube_released() {
   pushd "$(mktemp -d)" >/dev/null || exit
   if [[ -s "/tmp/$K8S_MD.versions" ]]; then
     cri_released "${K8S_MD##*-}"
-    if ! diff "/tmp/$K8S_MD.versions" "$checker_build/${image_tag%-*}"; then
-      while read -r vKUBE; do
-        if ! grep "$vKUBE" "$checker_build/${image_tag%-*}" &>/dev/null; then
-          date >>"/tmp/.${checker_build//\//_}"
-          kube_upgrade "$vKUBE"
-        fi
-      done <"/tmp/$K8S_MD.versions"
-    else
-      if [[ true == "$PULL_IMAGE" ]]; then
-        while read -r vKUBE; do
-          if ! docker pull "$REGISTRY/$REPOSITORY:kubernetes-$vKUBE-$ARCH" &>/dev/null; then
-            date >>"/tmp/.${checker_build//\//_}"
-            kube_upgrade "$vKUBE"
-          fi
-        done <"/tmp/$K8S_MD.versions"
-      fi
-    fi
-    cp -a "/tmp/$K8S_MD.versions" "$checker_build/${image_tag%-*}"
-    cp -a "/tmp/$K8S_MD" "$checker_build"
+    while read -r vKUBE; do
+      kube_upgrade "$vKUBE"
+    done <"/tmp/$K8S_MD.versions"
   else
     # unstable for CHANGELOG-v1.xx.md
     grep -E '^- \[v.+\]' "/tmp/$K8S_MD" | awk -F] '{print $1}' | awk -F[ '{print $NF}'
@@ -207,8 +187,5 @@ kube_released() {
 }
 
 kube_released
-
-if [[ -s "/tmp/.${checker_build//\//_}" ]]; then checker_image; fi
-if docker images "$REGISTRY/$REPOSITORY" | grep "$REGISTRY/$REPOSITORY"; then until docker push "$REGISTRY/$REPOSITORY" --all-tags; do sleep 3; done; fi
 
 rm -rf /tmp/tmp.*

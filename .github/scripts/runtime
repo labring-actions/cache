@@ -22,42 +22,36 @@ done
 
 image_tag="runtime"
 pushd "$(mktemp -d)" >/dev/null
-for name in ${!REPOS[*]}; do echo "echo $name=v\$$name >>/tmp/$image_tag"; done | bash
-sort "/tmp/$image_tag" >.versions
-if ! diff .versions "$checker_build/${image_tag%-*}"; then
-  date >>"/tmp/.${checker_build//\//_}"
-  cp -a .versions "$checker_build/${image_tag%-*}"
-  {
-    until curl -sL "https://github.com/opencontainers/runc/archive/refs/tags/v$RUNC.tar.gz" | tar -xz; do sleep 3; done
-    pushd "runc-$RUNC" >/dev/null
-    export "$(grep -E "LIBSECCOMP_VERSION=[0-9]" Dockerfile | awk '{print $NF}')"
-    tree -L 5
-    docker build -t "seccomp/libseccomp:v$LIBSECCOMP_VERSION" .
-    docker run --rm -v "$PWD:/pwd" -w /pwd --entrypoint /bin/sh "seccomp/libseccomp:v$LIBSECCOMP_VERSION" -c "tar -zcf libseccomp-v$LIBSECCOMP_VERSION.tgz /opt/libseccomp"
-    popd >/dev/null
-  }
-  cp "runc-$RUNC/libseccomp-v$LIBSECCOMP_VERSION.tgz" .
-  sudo rm -rf "runc-$RUNC"
-  until curl -sLo runc.amd64 "https://github.com/opencontainers/runc/releases/download/v$RUNC/runc.amd64"; do sleep 3; done
-  until curl -sLo runc.arm64 "https://github.com/opencontainers/runc/releases/download/v$RUNC/runc.arm64"; do sleep 3; done
-  chmod a+x runc.*
-  cat <<EOF >"/tmp/$image_tag"
+{
+  until curl -sL "https://github.com/opencontainers/runc/archive/refs/tags/v$RUNC.tar.gz" | tar -xz; do sleep 3; done
+  pushd "runc-$RUNC" >/dev/null
+  export "$(grep -E "LIBSECCOMP_VERSION=[0-9]" Dockerfile | awk '{print $NF}')"
+  tree -L 5
+  docker build -t "seccomp/libseccomp:v$LIBSECCOMP_VERSION" .
+  docker run --rm -v "$PWD:/pwd" -w /pwd --entrypoint /bin/sh "seccomp/libseccomp:v$LIBSECCOMP_VERSION" -c "tar -zcf libseccomp-v$LIBSECCOMP_VERSION.tgz /opt/libseccomp"
+  popd >/dev/null
+}
+cp "runc-$RUNC/libseccomp-v$LIBSECCOMP_VERSION.tgz" .
+sudo rm -rf "runc-$RUNC"
+until curl -sLo runc.amd64 "https://github.com/opencontainers/runc/releases/download/v$RUNC/runc.amd64"; do sleep 3; done
+until curl -sLo runc.arm64 "https://github.com/opencontainers/runc/releases/download/v$RUNC/runc.arm64"; do sleep 3; done
+chmod a+x runc.*
+cat <<EOF >"/tmp/$image_tag"
 FROM alpine:3
 COPY . /runtime
 EOF
-  tree -L 5
-  docker buildx build \
-    --platform "linux/amd64" \
-    --label "org.opencontainers.image.source=https://github.com/$REPOSITORY" \
-    --label "org.opencontainers.image.description=runc-v$RUNC,libseccomp-v$LIBSECCOMP_VERSION container image" \
-    --label "org.opencontainers.image.licenses=MIT" \
-    -t "$REGISTRY/$REPOSITORY:$image_tag" \
-    -f "/tmp/$image_tag" \
-    .
-fi
+tree -L 5
+# 构建镜像：禁用缓存并直接推送
+docker buildx build \
+  --platform "linux/amd64" \
+  --no-cache \
+  --push \
+  --label "org.opencontainers.image.source=https://github.com/$REPOSITORY" \
+  --label "org.opencontainers.image.description=runc-v$RUNC,libseccomp-v$LIBSECCOMP_VERSION container image" \
+  --label "org.opencontainers.image.licenses=MIT" \
+  -t "$REGISTRY/$REPOSITORY:$image_tag" \
+  -f "/tmp/$image_tag" \
+  .
 popd >/dev/null
-
-if [[ -s "/tmp/.${checker_build//\//_}" ]]; then checker_image; fi
-if docker images "$REGISTRY/$REPOSITORY" | grep "$REGISTRY/$REPOSITORY"; then until docker push "$REGISTRY/$REPOSITORY" --all-tags; do sleep 3; done; fi
 
 rm -rf /tmp/tmp.*

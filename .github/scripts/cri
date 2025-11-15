@@ -68,70 +68,64 @@ get_pkg() {
 
 image_tag="cri-$ARCH"
 pushd "$(mktemp -d)" >/dev/null
-for name in ${!REPOS[*]}; do echo "echo $name=v\$$name >>/tmp/$image_tag"; done | bash
-sort "/tmp/$image_tag" >.versions
-if ! diff .versions "$checker_build/${image_tag%-*}"; then
-  date >>"/tmp/.${checker_build//\//_}"
-  cp -a .versions "$checker_build/${image_tag%-*}"
-  get_pkg "$PWD/cri-containerd.tar.gz"
-  get_pkg "$PWD/cri-dockerd.tgz"
-  # kube 1.16(docker-18.09)
-  # kube 1.17-20(docker-19.03)
-  # kube 1.21-23(docker-20.10)
-  for major in 18 19 20 23 24 25 26 27 28; do
-    for tag in $(git ls-remote --refs --sort="-version:refname" --tags "https://github.com/${REPOS[DOCKER]}.git" | cut -d/ -f3- | grep -E "^v${major}[0-9.]+$" | head -n 9 | cut -dv -f2); do
-      until curl -sLo "docker-${tag%.*}.tgz" "https://download.docker.com/linux/static/stable/$ALIAS_ARCH/docker-$tag.tgz"; do sleep 3; done
-      if file "docker-${tag%.*}.tgz" | grep compressed >/dev/null; then
-        echo "docker-$tag.tgz -> docker-${tag%.*}.tgz"
-        break
-      fi
-    done
+get_pkg "$PWD/cri-containerd.tar.gz"
+get_pkg "$PWD/cri-dockerd.tgz"
+# kube 1.16(docker-18.09)
+# kube 1.17-20(docker-19.03)
+# kube 1.21-23(docker-20.10)
+for major in 18 19 20 23 24 25 26 27 28; do
+  for tag in $(git ls-remote --refs --sort="-version:refname" --tags "https://github.com/${REPOS[DOCKER]}.git" | cut -d/ -f3- | grep -E "^v${major}[0-9.]+$" | head -n 9 | cut -dv -f2); do
+    until curl -sLo "docker-${tag%.*}.tgz" "https://download.docker.com/linux/static/stable/$ALIAS_ARCH/docker-$tag.tgz"; do sleep 3; done
+    if file "docker-${tag%.*}.tgz" | grep compressed >/dev/null; then
+      echo "docker-$tag.tgz -> docker-${tag%.*}.tgz"
+      break
+    fi
   done
-  # kube 1.24-25(cri-dockerd v0.2.x)
-  # kube 1.26-xx(cri-dockerd v0.3.x)
-  if [[ -s "docker-${DOCKER%.*}.tgz" ]]; then
-    mv "docker-${DOCKER%.*}.tgz" "docker.tgz"
-  else
-    until curl -sLo "docker.tgz" "https://download.docker.com/linux/static/stable/$ALIAS_ARCH/docker-$DOCKER.tgz"; do sleep 3; done
-  fi
-  until curl -sL "https://github.com/distribution/distribution/releases/download/v$DISTRIBUTION/registry_${DISTRIBUTION}_linux_$ARCH.tar.gz" | tar -xz registry; do sleep 3; done
-  {
-    until docker run --rm -v "$PWD/lib:/pwd" -w /pwd --entrypoint /bin/sh "$REGISTRY/$REPOSITORY:runtime" -c "tar -xzf /runtime/libseccomp-*.tgz"; do sleep 5; done
-    pushd lib
-    case $ARCH in
-    amd64)
-      sudo cp -a "opt/libseccomp/lib/libseccomp.so"* .
-      ;;
-    *)
-      sudo cp -a "opt/libseccomp/$ARCH/lib/libseccomp.so"* .
-      ;;
-    esac
-    sudo rm -rf opt
-    popd >/dev/null
-    sudo chown -hR 0:0 lib
-    tar -czf libseccomp.tar.gz lib
-    sudo rm -rf lib
-  }
-  until curl -sL "https://github.com/labring/cluster-image/releases/download/depend/library-2.5-linux-$ARCH.tar.gz" | tar -xz --strip-components=2 library/bin/conntrack; do sleep 3; done
-  until curl -sLo lsof "https://github.com/labring/cluster-image/releases/download/depend/lsof-linux-$ARCH"; do sleep 3; done
-  find . -type f -exec file {} \; | grep -E "(executable,|/ld-)" | awk -F: '{print $1}' | grep -vE "\.so" | while IFS='' read -r elf; do sudo chmod a+x "$elf" && binary_verify "$elf"; done
-  cat <<EOF >"/tmp/$image_tag"
+done
+# kube 1.24-25(cri-dockerd v0.2.x)
+# kube 1.26-xx(cri-dockerd v0.3.x)
+if [[ -s "docker-${DOCKER%.*}.tgz" ]]; then
+  mv "docker-${DOCKER%.*}.tgz" "docker.tgz"
+else
+  until curl -sLo "docker.tgz" "https://download.docker.com/linux/static/stable/$ALIAS_ARCH/docker-$DOCKER.tgz"; do sleep 3; done
+fi
+until curl -sL "https://github.com/distribution/distribution/releases/download/v$DISTRIBUTION/registry_${DISTRIBUTION}_linux_$ARCH.tar.gz" | tar -xz registry; do sleep 3; done
+{
+  until docker run --rm -v "$PWD/lib:/pwd" -w /pwd --entrypoint /bin/sh "$REGISTRY/$REPOSITORY:runtime" -c "tar -xzf /runtime/libseccomp-*.tgz"; do sleep 5; done
+  pushd lib
+  case $ARCH in
+  amd64)
+    sudo cp -a "opt/libseccomp/lib/libseccomp.so"* .
+    ;;
+  *)
+    sudo cp -a "opt/libseccomp/$ARCH/lib/libseccomp.so"* .
+    ;;
+  esac
+  sudo rm -rf opt
+  popd >/dev/null
+  sudo chown -hR 0:0 lib
+  tar -czf libseccomp.tar.gz lib
+  sudo rm -rf lib
+}
+until curl -sL "https://github.com/labring/cluster-image/releases/download/depend/library-2.5-linux-$ARCH.tar.gz" | tar -xz --strip-components=2 library/bin/conntrack; do sleep 3; done
+until curl -sLo lsof "https://github.com/labring/cluster-image/releases/download/depend/lsof-linux-$ARCH"; do sleep 3; done
+find . -type f -exec file {} \; | grep -E "(executable,|/ld-)" | awk -F: '{print $1}' | grep -vE "\.so" | while IFS='' read -r elf; do sudo chmod a+x "$elf" && binary_verify "$elf"; done
+cat <<EOF >"/tmp/$image_tag"
 FROM alpine:3
 COPY . /cri
 EOF
-  tree -L 5
-  docker buildx build \
-    --platform "linux/$ARCH" \
-    --label "org.opencontainers.image.source=https://github.com/$REPOSITORY" \
-    --label "org.opencontainers.image.description=containerd-v$CONTAINERD,cridocker-v$CRIDOCKER,docker-v$DOCKER,registry-v$DISTRIBUTION container image" \
-    --label "org.opencontainers.image.licenses=MIT" \
-    -t "$REGISTRY/$REPOSITORY:$image_tag" \
-    -f "/tmp/$image_tag" \
-    .
-fi
+tree -L 5
+# 构建镜像：禁用缓存并直接推送
+docker buildx build \
+  --platform "linux/$ARCH" \
+  --no-cache \
+  --push \
+  --label "org.opencontainers.image.source=https://github.com/$REPOSITORY" \
+  --label "org.opencontainers.image.description=containerd-v$CONTAINERD,cridocker-v$CRIDOCKER,docker-v$DOCKER,registry-v$DISTRIBUTION container image" \
+  --label "org.opencontainers.image.licenses=MIT" \
+  -t "$REGISTRY/$REPOSITORY:$image_tag" \
+  -f "/tmp/$image_tag" \
+  .
 popd >/dev/null
-
-if [[ -s "/tmp/.${checker_build//\//_}" ]]; then checker_image; fi
-if docker images "$REGISTRY/$REPOSITORY" | grep "$REGISTRY/$REPOSITORY"; then until docker push "$REGISTRY/$REPOSITORY" --all-tags; do sleep 3; done; fi
 
 rm -rf /tmp/tmp.*
